@@ -9,19 +9,36 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// basic health check
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.REDIRECT_URI
+);
+
+const youtube = google.youtube({ version: 'v3', auth: process.env.YOUTUBE_API_KEY });
+
 app.get('/', (req, res) => {
   res.send('YouTube Stats Backend Running');
 });
 
-// OAuth login URL
-app.get('/auth', (req, res) => {
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.REDIRECT_URI
-  );
+// public video stats
+app.get('/api/video', async (req, res) => {
+  try {
+    const videoId = req.query.id;
+    if (!videoId) return res.status(400).json({ error: 'Missing video id' });
 
+    const response = await youtube.videos.list({
+      part: 'snippet,statistics,contentDetails',
+      id: videoId
+    });
+
+    res.json(response.data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/auth', (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: [
@@ -33,30 +50,25 @@ app.get('/auth', (req, res) => {
   res.redirect(url);
 });
 
-// OAuth callback
 app.get('/auth/callback', async (req, res) => {
-  const code = req.query.code;
+  try {
+    const code = req.query.code;
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
 
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.REDIRECT_URI
-  );
-
-  const { tokens } = await oauth2Client.getToken(code);
-  oauth2Client.setCredentials(tokens);
-
-  res.json({ message: 'Login successful', tokens });
+    res.json({ success: true, tokens });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// placeholder stats route
-app.get('/video-stats', async (req, res) => {
+app.get('/api/dashboard', async (req, res) => {
   res.json({
-    message: 'Stats endpoint ready',
-    note: 'Next step: connect YouTube Data + Analytics API'
+    status: 'ready',
+    message: 'Next step connect YouTube Analytics API for watch time, subs, CTR'
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log('Server running on port', PORT);
 });
